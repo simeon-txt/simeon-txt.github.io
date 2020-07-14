@@ -1,0 +1,35 @@
+html {
+  font-size: 15px; /* px significa "pixels": o tamanho da fonte base é agora de 10 pixels */
+  font-family: 'Open Sans Condensed', sans-serif; /* este deve ser o nome da fonte que você obteve no Google Fonts */
+  background-color: #EEEBEB;
+}
+
+body {
+  width: 600px;
+  margin: 0 auto;
+  background-color: #EEEBEB;
+  padding: 0 20px 20px 20px;
+  border: 5px solid gray;
+}
+
+h1 {
+  font-family: 'Dancing Script', cursive;
+  font-size: 80px;
+  text-align: center;
+  margin: 0;
+  padding: 20px 0;
+  color: black;
+  text-shadow: 3px 2px 1px gray;
+}
+
+p, li {
+  font-size: 16px;
+  line-height: 2;
+  letter-spacing: 1px;
+}
+img[src] {
+  max-height: 300px;
+  max-width: 300px;
+  display: block;
+  margin: 0 auto;
+}
