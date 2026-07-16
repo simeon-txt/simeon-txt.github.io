@@ -37,7 +37,9 @@ def ensure_jvm():
     import jpype
     import mpxj  # noqa: F401  (efeito colateral: registra os jars da MPXJ no classpath)
     if not jpype.isJVMStarted():
-        jpype.startJVM()
+        # sem isso, o log4j (sem provider configurado) escreve um aviso na
+        # stdout, poluindo a saida JSON deste script
+        jpype.startJVM("-Dlog4j2.StatusLogger.level=OFF")
     return jpype
 
 
