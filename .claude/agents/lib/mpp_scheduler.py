@@ -328,9 +328,32 @@ def cmd_apply(args):
         from org.mpxj.mspdi import MSPDIWriter
         MSPDIWriter().write(project, args.out_project)
 
+    if args.out_gantt:
+        flags_by_id = {r["id"]: r for r in replan}
+        chart_rows = []
+        for t in tasks:
+            uid = int(t.getUniqueID())
+            start = to_pydate(t.getStart())
+            finish = to_pydate(t.getFinish())
+            if start is None or finish is None:
+                continue
+            pct = to_pct(t.getPercentageComplete())
+            flag = flags_by_id.get(uid, {})
+            chart_rows.append({
+                "wbs": task_wbs(t),
+                "nome": str(t.getName()),
+                "inicio": start,
+                "termino": finish,
+                "percentual": pct,
+                "comprimida": flag.get("comprimida", False),
+                "bloqueada": flag.get("bloqueada", False),
+            })
+        render_gantt_pdf(chart_rows, cutoff, final_date, args.out_gantt)
+
     print(json.dumps({
         "relatorio": args.out_report,
         "projeto_atualizado": args.out_project,
+        "gantt_pdf": args.out_gantt,
         "novo_termino_projeto": novo_termino_projeto.strftime("%Y-%m-%d") if novo_termino_projeto else None,
         "data_final_alvo": args.final,
         "tarefas_replanejadas": len(replan),
@@ -435,6 +458,80 @@ def render_report(args, cutoff, before, updates, replan, novo_termino_projeto, f
     return "\n".join(lines) + "\n"
 
 
+def render_gantt_pdf(rows, cutoff, final_date, out_path, tasks_per_page=40):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    window_start = cutoff.date() - datetime.timedelta(days=2)
+    window_end = (final_date or cutoff).date() + datetime.timedelta(days=2)
+    for r in rows:
+        window_end = max(window_end, r["termino"].date())
+    window_end += datetime.timedelta(days=2)
+
+    with PdfPages(out_path) as pdf:
+        n_pages = max(1, (len(rows) + tasks_per_page - 1) // tasks_per_page)
+        for page in range(n_pages):
+            chunk_rows = rows[page * tasks_per_page:(page + 1) * tasks_per_page]
+            fig_h = max(2.5, 0.32 * len(chunk_rows) + 1.2)
+            fig, ax = plt.subplots(figsize=(14, fig_h))
+
+            ylabels = []
+            for i, r in enumerate(chunk_rows):
+                y = len(chunk_rows) - i
+                start = r["inicio"].date()
+                finish = r["termino"].date()
+                clipped_start = max(start, window_start)
+                clipped_finish = max(min(finish, window_end), clipped_start)
+                total_days = max((clipped_finish - clipped_start).days, 0.3)
+                done_days = total_days * (r["percentual"] / 100.0)
+
+                if r["bloqueada"]:
+                    edge, face_done, face_rem = "#b3261e", "#b3261e", "#f2c9c6"
+                elif r["comprimida"]:
+                    edge, face_done, face_rem = "#8a6d00", "#c9a227", "#f2e3b3"
+                elif r["percentual"] >= 100:
+                    edge, face_done, face_rem = "#2e7d32", "#66bb6a", "#66bb6a"
+                else:
+                    edge, face_done, face_rem = "#1f4e79", "#5b8ec4", "#cfe0f0"
+
+                ax.barh(y, total_days, left=mdates.date2num(clipped_start),
+                        color=face_rem, edgecolor=edge, height=0.55, linewidth=0.8)
+                if done_days > 0:
+                    ax.barh(y, done_days, left=mdates.date2num(clipped_start),
+                            color=face_done, edgecolor=edge, height=0.55, linewidth=0.8)
+
+                label = f"{r['wbs']}  {r['nome'][:55]}"
+                if start < window_start:
+                    label += f"  (iniciou {start.strftime('%d/%m')})"
+                ylabels.append(f"{label}  [{r['percentual']:.0f}%]")
+
+            ax.set_yticks(range(len(chunk_rows), 0, -1))
+            ax.set_yticklabels(ylabels, fontsize=6.5)
+            ax.set_xlim(mdates.date2num(window_start), mdates.date2num(window_end))
+            ax.xaxis_date()
+            ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, (window_end - window_start).days // 20)))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m"))
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=7)
+
+            ax.axvline(mdates.date2num(cutoff.date()), color="#444", linestyle="--", linewidth=1)
+            ax.text(mdates.date2num(cutoff.date()), len(chunk_rows) + 0.6, "hoje",
+                    fontsize=7, color="#444", ha="center")
+            if final_date:
+                ax.axvline(mdates.date2num(final_date.date()), color="#b3261e", linestyle="--", linewidth=1)
+                ax.text(mdates.date2num(final_date.date()), len(chunk_rows) + 0.6, "prazo final",
+                        fontsize=7, color="#b3261e", ha="center")
+
+            ax.set_ylim(0.3, len(chunk_rows) + 1.2)
+            ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.6)
+            ax.set_title(f"Cronograma — pagina {page + 1}/{n_pages}", fontsize=10, loc="left")
+            fig.tight_layout()
+            pdf.savefig(fig)
+            plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -451,6 +548,7 @@ def main():
     p_apply.add_argument("--out-report", required=True, help="Caminho do relatorio .md de saida")
     p_apply.add_argument("--out-project", default=None, help="Caminho opcional para salvar o projeto atualizado (.xml MSPDI)")
     p_apply.add_argument("--final", default=None, help="Data final alvo do projeto YYYY-MM-DD (opcional)")
+    p_apply.add_argument("--out-gantt", default=None, help="Caminho opcional para um grafico de Gantt em PDF (requer matplotlib)")
     p_apply.set_defaults(func=cmd_apply)
 
     args = parser.parse_args()
