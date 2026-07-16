@@ -193,6 +193,9 @@ def cmd_apply(args):
     cutoff = parse_date_arg(args.cutoff)
     cutoff_ldt = to_java_ldt(jpype, cutoff)
 
+    final_date = parse_date_arg(args.final) if args.final else None
+    final_ldt = to_java_ldt(jpype, final_date.replace(hour=23, minute=59)) if final_date else None
+
     with open(args.updates, encoding="utf-8") as f:
         updates = json.load(f)
     updates = {int(k): float(v) for k, v in updates.items()}
@@ -255,13 +258,36 @@ def cmd_apply(args):
         if not new_start.isAfter(cutoff_ldt) and pct > 0:
             new_start = cutoff_ldt if cutoff_ldt.isAfter(new_start) else new_start
 
-        duration = t.getDuration()
-        if duration is None:
-            continue
-        remaining = Duration.getInstance(duration.getDuration() * (1.0 - pct / 100.0), duration.getUnits())
-
-        cal = calendar_for(t)
-        new_finish = cal.getDate(new_start, remaining)
+        # sem prazo final: usa o passe simples (duracao restante = duracao total x % pendente)
+        bloqueada = False
+        comprimida = False
+        if final_ldt is None:
+            duration = t.getDuration()
+            if duration is None:
+                continue
+            remaining = Duration.getInstance(duration.getDuration() * (1.0 - pct / 100.0), duration.getUnits())
+            cal = calendar_for(t)
+            new_finish = cal.getDate(new_start, remaining)
+        else:
+            # com prazo final: e um limite rigido — o restante da tarefa e
+            # comprimido para caber entre o inicio possivel e o prazo final,
+            # nunca empurrando a data para frente. Tarefas cuja propria
+            # predecessora ja termina depois do prazo ficam marcadas como
+            # bloqueadas (nao ha como caber so ajustando a duracao).
+            if new_start.isAfter(final_ldt):
+                bloqueada = True
+                new_start = final_ldt
+            duration = t.getDuration()
+            if duration is None:
+                continue
+            cal = calendar_for(t)
+            naive_remaining = Duration.getInstance(duration.getDuration() * (1.0 - pct / 100.0), duration.getUnits())
+            naive_finish = cal.getDate(new_start, naive_remaining)
+            if naive_finish.isAfter(final_ldt):
+                comprimida = True
+                new_finish = final_ldt
+            else:
+                new_finish = naive_finish
 
         old_start = to_pydate(t.getStart())
         old_finish = to_pydate(t.getFinish())
@@ -287,12 +313,12 @@ def cmd_apply(args):
             "inicio_novo": to_pydate(new_start),
             "termino_novo": to_pydate(new_finish),
             "dias_ativos": dias_ativos,
+            "comprimida": comprimida,
+            "bloqueada": bloqueada,
         })
 
     all_finishes = [to_pydate(t.getFinish()) for t in tasks if t.getFinish() is not None]
     novo_termino_projeto = max(all_finishes) if all_finishes else None
-
-    final_date = parse_date_arg(args.final) if args.final else None
 
     report = render_report(args, cutoff, before, updates, replan, novo_termino_projeto, final_date)
     with open(args.out_report, "w", encoding="utf-8") as f:
@@ -308,6 +334,8 @@ def cmd_apply(args):
         "novo_termino_projeto": novo_termino_projeto.strftime("%Y-%m-%d") if novo_termino_projeto else None,
         "data_final_alvo": args.final,
         "tarefas_replanejadas": len(replan),
+        "tarefas_comprimidas": sum(1 for r in replan if r.get("comprimida") and not r.get("bloqueada")),
+        "tarefas_bloqueadas": sum(1 for r in replan if r.get("bloqueada")),
     }, ensure_ascii=False, indent=2))
 
 
@@ -334,12 +362,13 @@ def render_report(args, cutoff, before, updates, replan, novo_termino_projeto, f
     lines.append("## Tarefas replanejadas (ainda nao concluidas)")
     lines.append("")
     if replan:
-        lines.append("| Tarefa | % | Termino antigo | Termino novo |")
-        lines.append("|---|---|---|---|")
+        lines.append("| Tarefa | % | Termino antigo | Termino novo | |")
+        lines.append("|---|---|---|---|---|")
         for r in replan:
             antigo = r["termino_antigo"].strftime("%d/%m/%Y") if r["termino_antigo"] else "-"
             novo = r["termino_novo"].strftime("%d/%m/%Y") if r["termino_novo"] else "-"
-            lines.append(f"| {r['nome']} | {r['percentual']:.0f}% | {antigo} | {novo} |")
+            marca = "🔴 bloqueada" if r.get("bloqueada") else ("🟡 comprimida" if r.get("comprimida") else "")
+            lines.append(f"| {r['nome']} | {r['percentual']:.0f}% | {antigo} | {novo} | {marca} |")
     else:
         lines.append("Nenhuma tarefa precisou ser replanejada.")
     lines.append("")
@@ -349,15 +378,37 @@ def render_report(args, cutoff, before, updates, replan, novo_termino_projeto, f
     if novo_termino_projeto:
         lines.append(f"- Novo termino previsto (apos replanejamento): **{novo_termino_projeto.strftime('%d/%m/%Y')}**")
     if final_date:
-        lines.append(f"- Data final alvo: **{final_date.strftime('%d/%m/%Y')}**")
+        lines.append(f"- Data final alvo (limite rigido): **{final_date.strftime('%d/%m/%Y')}**")
         if novo_termino_projeto:
             delta = (novo_termino_projeto.date() - final_date.date()).days
             if delta > 0:
-                lines.append(f"- ⚠️ Projeto tende a atrasar **{delta} dia(s)** em relacao a data final, "
-                              f"mantido o ritmo atual.")
+                lines.append(f"- ⚠️ Mesmo comprimindo o restante das tarefas, o projeto ainda passaria "
+                              f"**{delta} dia(s)** do prazo (ver tarefas bloqueadas abaixo).")
             else:
-                lines.append(f"- Projeto dentro do prazo (folga de {-delta} dia(s)).")
+                lines.append(f"- Cronograma comprimido para caber ate a data final "
+                              f"(folga de {-delta} dia(s)).")
     lines.append("")
+
+    comprimidas = [r for r in replan if r.get("comprimida") and not r.get("bloqueada")]
+    bloqueadas = [r for r in replan if r.get("bloqueada")]
+    if comprimidas or bloqueadas:
+        lines.append("## Pontos de atencao (tarefas comprimidas para caber no prazo)")
+        lines.append("")
+        if bloqueadas:
+            lines.append("**🔴 Bloqueadas** — a propria predecessora so termina depois do prazo final; "
+                          "nao ha como encaixar so ajustando a duracao desta tarefa, precisa agir na "
+                          "predecessora ou liberar essa dependencia:")
+            for r in bloqueadas:
+                lines.append(f"- {r['nome']} ({r['percentual']:.0f}% concluido)")
+            lines.append("")
+        if comprimidas:
+            lines.append("**🟡 Comprimidas** — o ritmo normal (duracao total x % pendente) terminaria "
+                          "depois do prazo; para caber ate a data final, o restante desta tarefa foi "
+                          "encaixado num prazo menor do que o ritmo atual sugere — considere reforcar "
+                          "equipe/turno nelas:")
+            for r in comprimidas:
+                lines.append(f"- {r['nome']} ({r['percentual']:.0f}% concluido)")
+            lines.append("")
 
     lines.append("## Plano dos proximos dias")
     lines.append("")

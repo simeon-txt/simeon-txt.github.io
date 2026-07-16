@@ -91,11 +91,18 @@ ler como texto).
      --out-report relatorio.md --out-project atualizado.xml \
      --final <YYYY-MM-DD_data_final>
    ```
-   Isso reprograma para frente as tarefas ainda não concluídas (respeitando
-   dependências Término→Início e o calendário de cada tarefa), gera
-   `relatorio.md` (avanço do dia + plano dos próximos dias) e salva um
-   projeto atualizado em MSPDI XML (`atualizado.xml`), reabrível no MS
-   Project.
+   `--final` é tratado como **limite rígido**: as tarefas ainda não
+   concluídas são encaixadas no fluxo (respeitando dependências
+   Término→Início e o calendário de cada tarefa) para terminar até essa
+   data, nunca depois — se o ritmo normal (duração total × % pendente)
+   ultrapassaria o prazo, o restante da tarefa é comprimido para caber, e
+   ela entra no relatório como "🟡 comprimida" (precisa de mais
+   equipe/turno para realmente cumprir aquele ritmo). Se a própria
+   predecessora só termina depois do prazo final, a tarefa fica "🔴
+   bloqueada" (não dá para resolver só comprimindo a duração — o problema
+   está na predecessora). Gera `relatorio.md` (avanço do dia + pontos de
+   atenção + plano dos próximos dias) e salva o projeto atualizado em
+   MSPDI XML (`atualizado.xml`), reabrível no MS Project.
 
 9. **Entregar o resultado.** Leia `relatorio.md` e mostre o conteúdo ao
    usuário na conversa. Se o usuário quiser guardar no Drive, use
@@ -108,7 +115,12 @@ ler como texto).
   dependência Término→Início é seguido com precisão; os demais tipos usam
   uma aproximação.
 - Não há nivelamento de recursos — a reprogramação olha só para datas e
-  dependências, não para disponibilidade de pessoas/equipamentos.
-- Duração restante de cada tarefa = duração original × (1 − percentual
-  concluído). Para tarefas críticas, recomende conferir o resultado
-  reabrindo `atualizado.xml` no MS Project antes de comunicar prazos.
+  dependências, não para disponibilidade de pessoas/equipamentos. Tarefas
+  marcadas como "comprimidas" no relatório assumem, no papel, que dá para
+  acelerar o ritmo; avise o usuário que isso normalmente exige reforço de
+  equipe/turno, não é automático.
+- Duração restante "normal" de cada tarefa = duração original × (1 −
+  percentual concluído); com `--final`, isso vira só o ponto de partida —
+  o valor real usado é comprimido para nunca passar do prazo. Para
+  tarefas críticas, recomende conferir o resultado reabrindo
+  `atualizado.xml` no MS Project antes de comunicar prazos.
