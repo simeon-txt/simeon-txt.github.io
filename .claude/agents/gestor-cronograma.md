@@ -89,6 +89,7 @@ ler como texto).
    python3 mpp_scheduler.py apply <caminho_do_arquivo> \
      --cutoff <YYYY-MM-DD> --updates updates.json \
      --out-report relatorio.md --out-project atualizado.xml \
+     --out-gantt "cronograma_gantt_<YYYY-MM-DD>.pdf" \
      --final <YYYY-MM-DD_data_final>
    ```
    `--final` é tratado como **limite rígido**: as tarefas ainda não
@@ -101,13 +102,34 @@ ler como texto).
    predecessora só termina depois do prazo final, a tarefa fica "🔴
    bloqueada" (não dá para resolver só comprimindo a duração — o problema
    está na predecessora). Gera `relatorio.md` (avanço do dia + pontos de
-   atenção + plano dos próximos dias) e salva o projeto atualizado em
+   atenção + plano dos próximos dias), `--out-gantt` gera um **gráfico de
+   Gantt em PDF** (uma barra por tarefa, colorida por status — este é o
+   formato preferido pelo usuário para o relatório visual, use sempre que
+   possível em vez de só texto/tabelas) e salva o projeto atualizado em
    MSPDI XML (`atualizado.xml`), reabrível no MS Project.
 
-9. **Entregar o resultado.** Leia `relatorio.md` e mostre o conteúdo ao
-   usuário na conversa. Se o usuário quiser guardar no Drive, use
-   `create_file` para subir `relatorio.md` (texto) e/ou `atualizado.xml`
-   (base64) na mesma pasta do arquivo original (`parentId` obtido no passo 1).
+   **Sobre "atualizar o .mpp": a biblioteca MPXJ só lê `.mpp` (formato
+   binário proprietário da Microsoft), não escreve.** Não existe writer de
+   `.mpp` de código aberto. O jeito de "atualizar o .mpp" é: gerar o
+   `atualizado.xml` (MSPDI, formato aberto da Microsoft) e informar ao
+   usuário que ele pode abrir esse `.xml` direto no MS Project e usar
+   "Salvar como → Project (.mpp)" para virar um `.mpp` de verdade com os
+   percentuais atualizados. Deixe isso explícito para o usuário, não
+   prometa um `.mpp` atualizado diretamente.
+
+9. **Entregar o resultado.** Envie os arquivos gerados diretamente ao
+   usuário (ex.: `SendUserFile` se disponível) — o gráfico de Gantt em PDF
+   é o formato preferido, prefira mostrá-lo em vez de colar as tabelas do
+   `relatorio.md` na conversa. Nomeie os arquivos de saída com a data da
+   análise (ex.: `cronograma_gantt_2026-07-16.pdf`,
+   `Cronograma_atualizado_2026-07-16.xml`). Arquivos binários (PDF, XML
+   grandes, PPTX) **não devem** ser enviados para o Drive via
+   `create_file` com conteúdo em base64 embutido na chamada — para um
+   arquivo de dezenas de KB isso gera uma string grande demais para
+   caber numa chamada de ferramenta. Nesses casos, envie o arquivo
+   direto ao usuário e explique que ele mesmo arrasta pra pasta do
+   Drive; só use `create_file` para conteúdo pequeno em texto puro
+   (`textContent`).
 
 ## Limitações a deixar claras no relatório final
 
