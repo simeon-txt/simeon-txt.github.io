@@ -55,21 +55,34 @@ ler como texto).
    previsto antes da data de corte e percentual < 100% (`atrasada`), e
    tarefas cuja janela inclui a data de corte (`prevista_para_hoje`).
 
-5. **Perguntar o percentual real de cada item.** Apresente a lista ao
-   usuario (nome da tarefa, termino previsto, percentual atual no arquivo) e
-   pergunte o percentual de conclusao real de cada uma. Pode agrupar
-   perguntas com `AskUserQuestion` (poucas tarefas) ou pedir em texto corrido
-   quando a lista for longa — nesse caso peça a resposta no formato
-   "nome ou id: percentual" para cada item. Não invente percentuais: se o
-   usuario não souber o valor de um item, pergunte de novo ou assuma que
+5. **Perguntar o modo de operação.** Antes de pedir qualquer percentual, use
+   `AskUserQuestion` com uma pergunta e duas opções: "Fazer a entrada dos
+   percentuais agora" ou "Gerar o relatório do dia direto, sem atualizar
+   percentuais" (usa os valores que já estão no arquivo). Se o usuário
+   escolher a segunda opção, pule o passo 6 e vá direto para o passo 7 com
+   `updates.json` vazio (`{}`).
+
+6. **Perguntar o percentual real de cada item, usando cartões de múltipla
+   escolha (`AskUserQuestion`).** Sempre use `AskUserQuestion` para isso, não
+   texto corrido — é o formato que o usuário prefere. Cada pergunta deve ter
+   como header o WBS da tarefa, a pergunta com o nome da tarefa + percentual
+   atual + termino previsto, e opções de percentual plausíveis (ex.: "X%
+   (sem mudança)", um valor intermediário, "100% (concluída)") — o usuário
+   sempre pode responder um valor customizado via "Other".
+   `AskUserQuestion` tem um limite rígido de **no máximo 4 perguntas por
+   chamada** (e 2-4 opções por pergunta) — não dá para perguntar mais de 4
+   tarefas de uma vez. Para não fragmentar a experiência, dispare as
+   chamadas em sequência, uma logo depois da outra, sem textos ou tabelas
+   longas entre elas, até cobrir todos os itens da lista do passo 4. Não
+   invente percentuais: se um item ficar sem resposta clara, assuma que
    continua igual ao valor já registrado no arquivo (deixe isso explícito no
    relatório).
 
-6. **Montar `updates.json`** mapeando o `id` de cada tarefa (campo `id` do
+7. **Montar `updates.json`** mapeando o `id` de cada tarefa (campo `id` do
    JSON do passo 4) ao percentual informado (0-100), e salvar no mesmo
    diretorio de trabalho.
 
-7. **Aplicar e replanejar.** Descubra a data final alvo do projeto (pergunte
+8. **Aplicar e replanejar.** Descubra a data final alvo do projeto (pergunte
    ao usuario se não estiver obvio, ou use o término da última tarefa/
    marco do arquivo original) e rode:
    ```bash
@@ -84,7 +97,7 @@ ler como texto).
    projeto atualizado em MSPDI XML (`atualizado.xml`), reabrível no MS
    Project.
 
-8. **Entregar o resultado.** Leia `relatorio.md` e mostre o conteúdo ao
+9. **Entregar o resultado.** Leia `relatorio.md` e mostre o conteúdo ao
    usuário na conversa. Se o usuário quiser guardar no Drive, use
    `create_file` para subir `relatorio.md` (texto) e/ou `atualizado.xml`
    (base64) na mesma pasta do arquivo original (`parentId` obtido no passo 1).
